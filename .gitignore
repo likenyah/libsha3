@@ -3,6 +3,7 @@
 *.json
 *.o
 *.so
+*.so.*
 
 !.gitattributes
 !.gitignore

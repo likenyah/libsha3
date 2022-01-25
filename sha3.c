@@ -353,9 +353,9 @@ static void sha3_update_aligned(struct sha3_ctx *ctx, const void *buf, size_t le
 	 * Assuming buf is aligned on an 8-byte boundary and both ctx->index
 	 * and len are multiples of 8.
 	 */
+	const uint64_t *p = buf;
 	while (len) {
-		ctx->u64[ctx->index / 8] ^= read64le(buf);
-		buf += 8;
+		ctx->u64[ctx->index / 8] ^= read64le(p++);
 		ctx->index += 8;
 		len -= 8;
 
@@ -378,12 +378,13 @@ void sha3_update(struct sha3_ctx *ctx, const void *buf, size_t len)
 		return;
 	}
 
+	const uint8_t *p = buf;
 	while (len--) {
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 		uint8_t i = ctx->index++;
-		ctx->u8[(i / 8) + (7 - i % 8)] ^= *(uint8_t *)buf++;
+		ctx->u8[(i / 8) + (7 - i % 8)] ^= *p++;
 #elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-		ctx->u8[ctx->index++] ^= *(uint8_t *)buf++;
+		ctx->u8[ctx->index++] ^= *p++;
 #endif
 
 		if (ctx->index == ctx->rate) {

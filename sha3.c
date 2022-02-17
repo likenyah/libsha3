@@ -347,23 +347,69 @@ void sha3_init(struct sha3_ctx *ctx, enum sha3_algo algo)
 	memset(ctx->u8, 0, 200);
 }
 
-static void sha3_update_aligned(struct sha3_ctx *ctx, const void *buf, size_t len)
+static inline void sha3_update_aligned_block(struct sha3_ctx *ctx, const void **buf, size_t *len)
 {
-	/*
-	 * Assuming buf is aligned on an 8-byte boundary and both ctx->index
-	 * and len are multiples of 8.
-	 */
-	const uint64_t *p = buf;
-	while (len) {
-		ctx->u64[ctx->index / 8] ^= read64le(p++);
+	const uint64_t *p = *buf;
+	size_t i = 0;
+	size_t l = *len;
+
+	while (l >= ctx->rate) {
+		switch (ctx->size) {
+		case SHA3_224:
+			ctx->u64[i++] ^= read64le(p++);
+			/* Fallthrough */
+		case SHA3_256:
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			/* Fallthrough */
+		case SHA3_384:
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			/* Fallthrough */
+		case SHA3_512:
+		default:
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+			ctx->u64[i++] ^= read64le(p++);
+		}
+
+		i = 0;
+		l -= ctx->rate;
+		keccakf_1600(ctx->u64);
+	}
+
+	*buf = p;
+	*len = l;
+}
+
+static inline void sha3_update_aligned8(struct sha3_ctx *ctx, const void **buf, size_t *len)
+{
+	size_t l = *len;
+	const uint64_t *p = *buf;
+
+	while (l > 7) {
+		ctx->u64[ctx->index] ^= read64le(p++);
 		ctx->index += 8;
-		len -= 8;
+		l -= 8;
 
 		if (ctx->index == ctx->rate) {
 			ctx->index = 0;
 			keccakf_1600(ctx->u64);
 		}
-	};
+	}
+
+	*buf = p;
+	*len = l;
 }
 
 void sha3_update(struct sha3_ctx *ctx, const void *buf, size_t len)
@@ -373,10 +419,11 @@ void sha3_update(struct sha3_ctx *ctx, const void *buf, size_t len)
 	 * ctx->rate bytes and letting sha3_final() handle leftovers at the
 	 * end.
 	 */
-	if (!(len & 7) && !(ctx->index & 7) && !((uintptr_t)buf & 7)) {
-		sha3_update_aligned(ctx, buf, len);
-		return;
-	}
+	if (!ctx->index && len >= ctx->rate && !((uintptr_t)buf & 7))
+		sha3_update_aligned_block(ctx, &buf, &len);
+
+	if (!(ctx->index & 7) && len > 7 && !((uintptr_t)buf & 7))
+		sha3_update_aligned8(ctx, &buf, &len);
 
 	const uint8_t *p = buf;
 	while (len--) {

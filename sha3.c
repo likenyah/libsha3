@@ -396,9 +396,40 @@ void sha3_update(struct sha3_ctx *ctx, const void *buf, size_t len)
 
 void sha3_final(struct sha3_ctx *ctx, void *md)
 {
+	/*
+	 * The SHA-3 functions are defined in terms of the KECCAK[c] sponge
+	 * function as follows:
+	 *
+	 * 	SHA3-n(M) = KECCAK[2n](M || 01, n)
+	 *
+	 * Within KECCAK[c], the augmented message M || 01 is padded to a
+	 * multiple of r bits, where r is the padding rate. (ie. ctx->rate * 8)
+	 *
+	 * To achieve this here, we add in the 2-bit SHA-3 identifier string at
+	 * the current input position and set the final (ie. most-significant)
+	 * bit of the initial ctx->rate bytes in the state.
+	 *
+	 * We can skip the intervening padding bytes because the use of the
+	 * pad10*1 padding rule means they're all zero and therefore do not
+	 * modify the state.
+	 *
+	 * Essentially, the final input block looks like
+	 *
+	 * 	0                                       i      r
+	 * 	<random garbage the we previously read> 0110..01
+	 *
+	 * where r is the padding rate and i is the least-significant bit of
+	 * the byte at the current input position.
+	 */
 	ctx->u8[ctx->index] ^= 0x06;    /* 0b00000110 */
 	ctx->u8[ctx->rate - 1] ^= 0x80; /* 0b10000000 */
+
+	/*
+	 * We have now completed our final block of input, so apply the
+	 * permutation function once more.
+	 */
 	keccakf_1600(ctx->u64);
+
 	memcpy(md, ctx->u8, ctx->size);
 	memset(ctx->u8, 0, 200);
 }

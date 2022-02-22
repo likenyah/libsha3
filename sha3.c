@@ -347,44 +347,69 @@ void sha3_init(struct sha3_ctx *ctx, enum sha3_algo algo)
 	memset(ctx->u8, 0, 200);
 }
 
-static void sha3_update_aligned(struct sha3_ctx *ctx, const void *buf, size_t len)
-{
-	/*
-	 * Assuming buf is aligned on an 8-byte boundary and both ctx->index
-	 * and len are multiples of 8.
-	 */
-	const uint64_t *p = buf;
-	while (len) {
-		ctx->u64[ctx->index / 8] ^= read64le(p++);
-		ctx->index += 8;
-		len -= 8;
-
-		if (ctx->index == ctx->rate) {
-			ctx->index = 0;
-			keccakf_1600(ctx->u64);
-		}
-	};
-}
-
 void sha3_update(struct sha3_ctx *ctx, const void *buf, size_t len)
 {
-	/*
-	 * This could probably be sped up by trying to read in blocks of
-	 * ctx->rate bytes and letting sha3_final() handle leftovers at the
-	 * end.
-	 */
-	if (!(len & 7) && !(ctx->index & 7) && !((uintptr_t)buf & 7)) {
-		sha3_update_aligned(ctx, buf, len);
-		return;
+	if (!((uintptr_t)buf & 7) && !(ctx->index & 7)) {
+		const uint64_t *p = buf;
+
+		if (!ctx->index) {
+			uint8_t i = 0;
+			while (len >= ctx->rate) {
+				switch (ctx->size) {
+				case SHA3_224:
+					ctx->u64[i++] ^= read64le(p++);
+					/* Fallthrough */
+				case SHA3_256:
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					/* Fallthrough */
+				case SHA3_384:
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					/* Fallthrough */
+				case SHA3_512:
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+					ctx->u64[i++] ^= read64le(p++);
+				}
+
+				len -= ctx->rate;
+				i = 0;
+				keccakf_1600(ctx->u64);
+			}
+		}
+
+		while (len > 7) {
+			ctx->u64[ctx->index / 8] ^= read64le(p++);
+			ctx->index += 8;
+			len -= 8;
+
+			if (ctx->index == ctx->rate) {
+				ctx->index = 0;
+				keccakf_1600(ctx->u64);
+			}
+		}
+
+		buf = p;
 	}
 
-	const uint8_t *p = buf;
+	const uint8_t *q = buf;
 	while (len--) {
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 		uint8_t i = ctx->index++;
-		ctx->u8[(i / 8) + (7 - i % 8)] ^= *p++;
+		ctx->u8[(i / 8) + (7 - i % 8)] ^= *q++;
 #elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-		ctx->u8[ctx->index++] ^= *p++;
+		ctx->u8[ctx->index++] ^= *q++;
 #endif
 
 		if (ctx->index == ctx->rate) {
